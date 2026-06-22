@@ -8,6 +8,7 @@ Fluxo Google OAuth (lado servidor):
 """
 from __future__ import annotations
 
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_session_jwt, verify_google_id_token
 from app.db.session import get_session
 from app.models.entities import AccountType, User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -45,7 +48,10 @@ async def login_google(
 ) -> SessionOut:
     try:
         profile = verify_google_id_token(body.id_token)
-    except Exception:  # google-auth lança ValueError/GoogleAuthError
+    except Exception as exc:  # google-auth lança ValueError/GoogleAuthError
+        # Log server-side do motivo real (não exposto ao cliente) para diagnóstico.
+        logger.warning("login_google: id_token rejeitado: %s: %s",
+                       type(exc).__name__, exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="id_token do Google inválido",
