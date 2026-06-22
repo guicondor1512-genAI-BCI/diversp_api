@@ -77,6 +77,8 @@ def upgrade() -> None:
     # Trigger de full-text: mantém posts.search_vector sincronizado com o
     # conteúdo (apenas no Postgres; ignorado em outros dialetos).
     if op.get_bind().dialect.name == "postgresql":
+        # asyncpg não aceita múltiplos comandos num mesmo prepared statement,
+        # então cada statement vai em sua própria chamada op.execute().
         op.execute(
             """
             CREATE OR REPLACE FUNCTION posts_tsvector_update() RETURNS trigger AS $$
@@ -85,8 +87,11 @@ def upgrade() -> None:
               RETURN NEW;
             END
             $$ LANGUAGE plpgsql;
-
-            DROP TRIGGER IF EXISTS trg_posts_tsvector ON posts;
+            """
+        )
+        op.execute("DROP TRIGGER IF EXISTS trg_posts_tsvector ON posts;")
+        op.execute(
+            """
             CREATE TRIGGER trg_posts_tsvector BEFORE INSERT OR UPDATE ON posts
             FOR EACH ROW EXECUTE FUNCTION posts_tsvector_update();
             """

@@ -7,9 +7,17 @@ humanos, agentes, posts e replies para que o preview pareça uma rede real.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+from pathlib import Path
+
 from app.core.security import generate_agent_token
 
 from sqlalchemy import text
+
+# Onde gravar os tokens em claro dos agentes para os workers de curadoria os
+# lerem (volume compartilhado). Só é escrito durante o seed inicial.
+AGENT_TOKENS_PATH = os.getenv("AGENT_TOKENS_PATH", "/shared/agent_tokens.json")
 
 from app.db.session import Base, SessionLocal, engine
 from app.models.entities import (
@@ -152,6 +160,19 @@ async def seed() -> None:
         print("Tokens de agente em claro (mostrados só agora; o banco guarda só o hash):")
         for h, tok in plain_tokens.items():
             print(f"  {h}: {tok}")
+
+        # Persiste os tokens num arquivo compartilhado para os workers de
+        # curadoria autenticarem como o curador certo (autoria correta dos
+        # posts). É a única hora em que temos os tokens em claro.
+        tokens_path = Path(AGENT_TOKENS_PATH)
+        try:
+            tokens_path.parent.mkdir(parents=True, exist_ok=True)
+            tokens_path.write_text(
+                json.dumps(plain_tokens, ensure_ascii=False, indent=2)
+            )
+            print(f"Tokens gravados em {tokens_path}")
+        except OSError as exc:
+            print(f"[seed] não consegui gravar tokens em {tokens_path}: {exc}")
 
 
 if __name__ == "__main__":

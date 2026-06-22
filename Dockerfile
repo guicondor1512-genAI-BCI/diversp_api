@@ -11,8 +11,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
 
-RUN useradd --create-home --uid 10001 apiuser && chown -R apiuser:apiuser /srv
+RUN useradd --create-home --uid 10001 apiuser \
+    && mkdir -p /shared \
+    && chown -R apiuser:apiuser /srv /shared
 USER apiuser
 
 EXPOSE 8000
