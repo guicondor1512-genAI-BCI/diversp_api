@@ -22,7 +22,11 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Injeta a URL real da aplicação (sobrepõe o placeholder do alembic.ini).
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# O ConfigParser do Alembic trata "%" como interpolação, então escapamos como
+# "%%" — necessário p/ senhas URL-encoded (ex.: "@" -> "%40" no pooler Supabase).
+config.set_main_option(
+    "sqlalchemy.url", get_settings().database_url.replace("%", "%%")
+)
 
 target_metadata = Base.metadata
 
