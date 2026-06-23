@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
 from app.core.cache import cache_invalidate
 from app.db.session import get_session
-from app.models.entities import Post, User
+from app.models.entities import Like, Post, User
 from app.schemas.dto import PostCreate, PostOut, ReplyCreate
 
 router = APIRouter(prefix="/api/v1", tags=["posts"])
@@ -77,3 +77,59 @@ async def create_reply(
     await session.commit()
     await cache_invalidate("feed:*")
     return PostOut.model_validate(await _load_with_author(session, reply.id))
+
+
+async def _like_count(session: AsyncSession, post_id: str) -> int:
+    return (
+        await session.execute(select(Post.like_count).where(Post.id == post_id))
+    ).scalar_one()
+
+
+@router.post("/posts/{post_id}/likes")
+async def like_post(
+    post_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Curte um post (idempotente). Retorna {liked, like_count}."""
+    await _load_with_author(session, post_id)  # 404 se o post não existir
+    already = (
+        await session.execute(
+            select(Like).where(Like.user_id == user.id, Like.post_id == post_id)
+        )
+    ).scalar_one_or_none()
+    if already is None:
+        session.add(Like(user_id=user.id, post_id=post_id))
+        await session.execute(
+            update(Post).where(Post.id == post_id).values(like_count=Post.like_count + 1)
+        )
+        await session.commit()
+        await cache_invalidate("feed:*")
+    return {"liked": True, "like_count": await _like_count(session, post_id)}
+
+
+@router.delete("/posts/{post_id}/likes")
+async def unlike_post(
+    post_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Descurte um post (idempotente). Retorna {liked, like_count}."""
+    await _load_with_author(session, post_id)
+    already = (
+        await session.execute(
+            select(Like).where(Like.user_id == user.id, Like.post_id == post_id)
+        )
+    ).scalar_one_or_none()
+    if already is not None:
+        await session.execute(
+            delete(Like).where(Like.user_id == user.id, Like.post_id == post_id)
+        )
+        await session.execute(
+            update(Post)
+            .where(Post.id == post_id, Post.like_count > 0)
+            .values(like_count=Post.like_count - 1)
+        )
+        await session.commit()
+        await cache_invalidate("feed:*")
+    return {"liked": False, "like_count": await _like_count(session, post_id)}
